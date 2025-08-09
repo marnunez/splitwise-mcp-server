@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+target/
+Cargo.lock
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+LICENSE
+
+# Scripts (not needed in container)
+deploy.sh
+test_*.sh
+list_categories.sh
+
+# Systemd files
+*.service
+
+# Docker files (avoid recursion)
+Dockerfile
+docker-compose.yml
+.dockerignore
