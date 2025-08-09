@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  splitwise-mcp:
+    build: .
+    image: splitwise-mcp-server:latest
+    container_name: splitwise-mcp
+    restart: unless-stopped
+    environment:
+      - SPLITWISE_API_KEY=${SPLITWISE_API_KEY}
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN}
+      - RUST_LOG=${RUST_LOG:-info}
+      - PORT=8080
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      # HTTP Router
+      - "traefik.http.routers.splitwise.entrypoints=http"
+      - "traefik.http.routers.splitwise.rule=Host(`splitwise.${DOMAIN}`)"
+      - "traefik.http.middlewares.splitwise-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.splitwise.middlewares=splitwise-https-redirect"
+      # HTTPS Router
+      - "traefik.http.routers.splitwise-secure.entrypoints=https"
+      - "traefik.http.routers.splitwise-secure.rule=Host(`splitwise.${DOMAIN}`)"
+      - "traefik.http.routers.splitwise-secure.tls=true"
+      - "traefik.http.routers.splitwise-secure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.splitwise-secure.loadbalancer.server.port=8080"
+      # Optional: Add basic auth for extra security
+      # - "traefik.http.routers.splitwise-secure.middlewares=splitwise-auth"
+      # - "traefik.http.middlewares.splitwise-auth.basicauth.users=${SPLITWISE_BASIC_AUTH}"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+networks:
+  proxy:
+    external: true

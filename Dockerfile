@@ -1,8 +1,5 @@
 # Multi-stage build for minimal image size
-FROM rust:1.75-alpine AS builder
-
-# Install build dependencies
-RUN apk add --no-cache musl-dev
+FROM rust:latest AS builder
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -10,10 +7,12 @@ WORKDIR /usr/src/app
 # Copy Cargo files for dependency caching
 COPY Cargo.toml Cargo.lock ./
 
-# Create dummy main.rs for dependency compilation
+# Create dummy files for dependency compilation
 RUN mkdir src && \
     echo "fn main() {}" > src/main.rs && \
-    echo "fn main() {}" > src/main_simple.rs
+    echo "fn main() {}" > src/main_simple.rs && \
+    echo "fn main() {}" > src/main_http.rs && \
+    echo "fn main() {}" > src/test_api.rs
 
 # Build dependencies only
 RUN cargo build --release --bin splitwise-mcp
@@ -29,17 +28,17 @@ RUN touch src/main_simple.rs src/main_http.rs && \
     cargo build --release --bin splitwise-mcp && \
     cargo build --release --bin splitwise-mcp-http
 
-# Runtime stage
-FROM alpine:3.19
+# Runtime stage - using debian slim for better compatibility
+FROM debian:bookworm-slim
 
 # Install runtime dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libgcc
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1000 mcp && \
-    adduser -D -u 1000 -G mcp mcp
+RUN useradd -m -u 1000 -s /bin/bash mcp
 
 # Copy binaries from builder
 COPY --from=builder /usr/src/app/target/release/splitwise-mcp /usr/local/bin/splitwise-mcp
