@@ -1,0 +1,44 @@
+[package]
+name = "splitwise-mcp-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# MCP SDK - Official Rust SDK
+rmcp = { version = "0.5", features = ["transport-io"] }
+rmcp-macros = "0.5"
+# Splitwise API client
+splitwise = "0.1"
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Environment variables
+dotenv = "0.15"
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# HTTP client for custom API calls
+reqwest = { version = "0.12", features = ["json"] }
+# OAuth2 support
+oauth2 = "4.4"
+# URL handling
+url = "2.5"
+# Base64 encoding
+base64 = "0.22"
+
+[[bin]]
+name = "splitwise-mcp"
+path = "src/main_simple.rs"
+
+[[bin]]
+name = "test-api"
+path = "src/test_api.rs"
+
+[[bin]]
+name = "splitwise-mcp-rmcp"
+path = "src/main.rs"
