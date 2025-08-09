@@ -8,14 +8,12 @@ services:
     restart: unless-stopped
     environment:
       - SPLITWISE_API_KEY=${SPLITWISE_API_KEY}
+      - MCP_AUTH_TOKEN=${MCP_AUTH_TOKEN}
       - RUST_LOG=${RUST_LOG:-info}
-    # For stdio-based MCP (default)
-    stdin_open: true
-    tty: true
-    
-    # If you want to use TCP transport instead, uncomment:
-    # ports:
-    #   - "8080:8080"
+      - PORT=8080
+    # HTTP/SSE server port
+    ports:
+      - "8080:8080"
     
     # Health check
     healthcheck:

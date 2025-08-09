@@ -4,9 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# MCP SDK - Official Rust SDK
-rmcp = { version = "0.5", features = ["transport-io"] }
+# MCP SDK - Official Rust SDK with SSE transport
+rmcp = { version = "0.5", features = ["transport-io", "transport-sse-server"] }
 rmcp-macros = "0.5"
+# Web server framework
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+# Async SSE support
+async-sse = "5.1"
+futures = "0.3"
 # Splitwise API client
 splitwise = "0.1"
 # Async runtime
@@ -42,3 +49,7 @@ path = "src/test_api.rs"
 [[bin]]
 name = "splitwise-mcp-rmcp"
 path = "src/main.rs"
+
+[[bin]]
+name = "splitwise-mcp-http"
+path = "src/main_http.rs"

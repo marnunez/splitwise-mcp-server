@@ -1,6 +1,6 @@
 # Splitwise MCP Server
 
-A Rust-based Model Context Protocol (MCP) server that provides Claude and other AI agents with access to your Splitwise account for expense tracking and management.
+A Rust-based Model Context Protocol (MCP) server that provides Claude and other AI agents with access to your Splitwise account for expense tracking and management. This server can be deployed locally or remotely and accessed via HTTP API, making it compatible with web-based AI services.
 
 ## Features
 
@@ -34,13 +34,14 @@ A Rust-based Model Context Protocol (MCP) server that provides Claude and other 
 
 - Rust 1.70+ and Cargo
 - Splitwise account and API key
-- Claude Desktop or other MCP-compatible client
+- For local: Claude Desktop or other MCP-compatible client
+- For remote: Docker and docker-compose (optional)
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/marnunez/splitwise-mcp-server.git
 cd splitwise-mcp-server
 ```
 
@@ -70,11 +71,15 @@ Create a `.env` file with:
 # Required
 SPLITWISE_API_KEY=your_api_key_here
 
+# For HTTP server (remote access)
+MCP_AUTH_TOKEN=your_secure_token_here
+PORT=8080
+
 # Optional logging level
 RUST_LOG=info
 ```
 
-### Claude Desktop Configuration
+### Local Setup (Claude Desktop)
 
 Add to your Claude configuration file (`claude.json`):
 
@@ -91,6 +96,33 @@ Add to your Claude configuration file (`claude.json`):
     }
   }
 }
+```
+
+### Remote Setup (HTTP Server)
+
+#### Docker Deployment (Recommended)
+
+1. Create `.env` file with your credentials:
+```bash
+SPLITWISE_API_KEY=your_api_key_here
+MCP_AUTH_TOKEN=your_secure_token_here
+```
+
+2. Deploy with docker-compose:
+```bash
+docker-compose up -d
+```
+
+The server will be available at `http://your-server:8080/mcp`
+
+#### Manual Deployment
+
+```bash
+# Build the HTTP server
+cargo build --release --bin splitwise-mcp-http
+
+# Run with authentication
+SPLITWISE_API_KEY=your_key MCP_AUTH_TOKEN=your_token ./target/release/splitwise-mcp-http
 ```
 
 ## Usage Examples
@@ -130,17 +162,64 @@ Once configured, you can ask Claude to:
 - `get_currencies` - List supported currencies
 - `get_categories` - List expense categories
 
+## Using with AI Services
+
+### ChatGPT (Custom GPT)
+
+1. Create a Custom GPT
+2. Add an action with this OpenAPI spec:
+
+```yaml
+openapi: 3.0.0
+info:
+  title: Splitwise MCP Server
+  version: 0.1.0
+servers:
+  - url: https://your-server.com:8080
+paths:
+  /mcp:
+    post:
+      operationId: callMCP
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Success
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+```
+
+3. Configure authentication with your `MCP_AUTH_TOKEN`
+
+### Claude (Web/Mobile)
+
+For Claude on web or mobile, you can:
+1. Deploy the server to a public URL
+2. Use function calling to interact with the API
+3. Provide the API documentation to Claude
+
 ## Development
 
 ### Running in Development Mode
 
 ```bash
-# Set environment variables
+# Local stdio server
 export SPLITWISE_API_KEY=your_api_key
 export RUST_LOG=debug
+cargo run --bin splitwise-mcp
 
-# Run the server
-cargo run
+# HTTP server for remote access
+export MCP_AUTH_TOKEN=test-token
+cargo run --bin splitwise-mcp-http
 ```
 
 ### Testing
@@ -167,12 +246,41 @@ The Splitwise API has rate limits. The server handles these gracefully, but be a
 - Consider caching for frequently accessed data
 - Use filters to minimize API calls
 
+## API Endpoints (HTTP Server)
+
+### Server Info
+```bash
+curl http://localhost:8080/
+```
+
+### MCP Operations
+```bash
+# Initialize
+curl -X POST http://localhost:8080/mcp \
+  -H "Authorization: Bearer your_token" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}'
+
+# List tools
+curl -X POST http://localhost:8080/mcp \
+  -H "Authorization: Bearer your_token" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":2}'
+
+# Call a tool
+curl -X POST http://localhost:8080/mcp \
+  -H "Authorization: Bearer your_token" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_current_user","arguments":{}},"id":3}'
+```
+
 ## Security
 
-- **Never commit your API key** - Use environment variables
+- **Never commit your API keys** - Use environment variables
 - The `.env` file is gitignored by default
+- Use strong authentication tokens for HTTP server
+- Consider HTTPS with proper certificates in production
 - API keys are only stored in memory during runtime
-- Use read-only access when possible
 
 ## Troubleshooting
 
