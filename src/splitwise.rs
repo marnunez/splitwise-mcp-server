@@ -355,6 +355,25 @@ impl SplitwiseClient {
         if let Some(date) = request.date {
             body["date"] = json!(date);
         }
+        
+        // Handle split information - required when changing cost
+        if let Some(split_equally) = request.split_equally {
+            body["split_equally"] = json!(split_equally);
+        }
+        
+        // Handle custom split shares - convert to flattened format for API
+        if let Some(shares) = request.split_by_shares {
+            for (index, share) in shares.iter().enumerate() {
+                if let Some(user_id) = share.user_id {
+                    body[format!("users__{}__user_id", index)] = json!(user_id);
+                }
+                if let Some(email) = &share.email {
+                    body[format!("users__{}__email", index)] = json!(email);
+                }
+                body[format!("users__{}__paid_share", index)] = json!(share.paid_share);
+                body[format!("users__{}__owed_share", index)] = json!(share.owed_share);
+            }
+        }
 
         #[derive(serde::Deserialize)]
         struct Response {

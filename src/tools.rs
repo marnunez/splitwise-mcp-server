@@ -460,6 +460,8 @@ impl SplitwiseTools {
                     description: String,
                     currency_code: Option<String>,
                     date: Option<String>,
+                    split_equally: Option<bool>,
+                    split_by_shares: Option<Vec<ExpenseShare>>,
                 }
                 let args: Args = serde_json::from_value(arguments)?;
                 let request = CreateExpenseRequest {
@@ -472,8 +474,8 @@ impl SplitwiseTools {
                     details: None,
                     payment: None,
                     group_id: None,
-                    split_equally: None,
-                    split_by_shares: None,
+                    split_equally: args.split_equally,
+                    split_by_shares: args.split_by_shares,
                 };
                 let expenses = self.client.update_expense(args.expense_id, request).await?;
                 Ok(serde_json::to_value(expenses)?)
