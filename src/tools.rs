@@ -250,7 +250,7 @@ impl SplitwiseTools {
                             "description": "New date (YYYY-MM-DD)"
                         }
                     },
-                    "required": ["expense_id", "cost", "description"]
+                    "required": ["expense_id"]
                 }
             }),
             json!({
@@ -521,8 +521,8 @@ impl SplitwiseTools {
                 #[derive(Deserialize)]
                 struct Args {
                     expense_id: i64,
-                    cost: String,
-                    description: String,
+                    cost: Option<String>,
+                    description: Option<String>,
                     currency_code: Option<String>,
                     category_id: Option<i64>,
                     date: Option<String>,
@@ -530,13 +530,12 @@ impl SplitwiseTools {
                     split_by_shares: Option<Vec<ExpenseShare>>,
                 }
                 let args: Args = serde_json::from_value(arguments)?;
-                let request = CreateExpenseRequest {
+                let request = UpdateExpenseRequest {
                     cost: args.cost,
                     description: args.description,
                     currency_code: args.currency_code,
                     category_id: args.category_id,
                     date: args.date,
-                    repeat_interval: None,
                     details: None,
                     payment: None,
                     group_id: None,

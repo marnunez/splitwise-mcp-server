@@ -180,6 +180,20 @@ pub struct CreateExpenseRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateExpenseRequest {
+    pub cost: Option<String>,
+    pub description: Option<String>,
+    pub currency_code: Option<String>,
+    pub category_id: Option<i64>,
+    pub date: Option<String>,
+    pub details: Option<String>,
+    pub payment: Option<bool>,
+    pub group_id: Option<i64>,
+    pub split_equally: Option<bool>,
+    pub split_by_shares: Option<Vec<ExpenseShare>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpenseShare {
     pub user_id: Option<i64>,
     pub email: Option<String>,

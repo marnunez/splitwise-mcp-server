@@ -338,13 +338,17 @@ impl SplitwiseClient {
     pub async fn update_expense(
         &self,
         id: i64,
-        request: CreateExpenseRequest,
+        request: UpdateExpenseRequest,
     ) -> Result<Vec<Expense>> {
         // Similar to create_expense but for update endpoint
         let mut body = json!({});
 
-        body["cost"] = json!(request.cost);
-        body["description"] = json!(request.description);
+        if let Some(cost) = request.cost {
+            body["cost"] = json!(cost);
+        }
+        if let Some(description) = request.description {
+            body["description"] = json!(description);
+        }
 
         if let Some(currency_code) = request.currency_code {
             body["currency_code"] = json!(currency_code);
