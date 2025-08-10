@@ -125,6 +125,17 @@ impl SplitwiseTools {
                             "items": {
                                 "type": "string"
                             }
+                        },
+                        "search_text": {
+                            "type": "string",
+                            "description": "Text to search for (case-insensitive substring match)"
+                        },
+                        "search_fields": {
+                            "type": "array",
+                            "description": "Fields to search in. Options: description, details, category. If omitted when search_text is provided, searches all fields",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     },
                     "required": []
@@ -387,6 +398,8 @@ impl SplitwiseTools {
                     limit: Option<i32>,
                     offset: Option<i32>,
                     fields: Option<Vec<String>>,
+                    search_text: Option<String>,
+                    search_fields: Option<Vec<String>>,
                 }
                 let args: Args = serde_json::from_value(arguments)?;
                 let params = ListExpensesParams {
@@ -399,7 +412,39 @@ impl SplitwiseTools {
                     limit: args.limit,
                     offset: args.offset,
                 };
-                let expenses = self.client.get_expenses(params).await?;
+                let mut expenses = self.client.get_expenses(params).await?;
+                
+                // Filter by search text if specified
+                if let Some(search_text) = args.search_text {
+                    let search_lower = search_text.to_lowercase();
+                    let search_fields = args.search_fields.unwrap_or_else(|| {
+                        vec!["description".to_string(), "details".to_string(), "category".to_string()]
+                    });
+                    
+                    expenses.retain(|expense| {
+                        for field in &search_fields {
+                            match field.as_str() {
+                                "description" => {
+                                    if expense.description.to_lowercase().contains(&search_lower) {
+                                        return true;
+                                    }
+                                },
+                                "details" => {
+                                    if expense.details.as_ref().map_or(false, |d| d.to_lowercase().contains(&search_lower)) {
+                                        return true;
+                                    }
+                                },
+                                "category" => {
+                                    if expense.category.name.to_lowercase().contains(&search_lower) {
+                                        return true;
+                                    }
+                                },
+                                _ => {}
+                            }
+                        }
+                        false
+                    });
+                }
                 
                 // If fields are specified, filter the response
                 if let Some(fields) = args.fields {
