@@ -121,7 +121,7 @@ impl SplitwiseTools {
                         },
                         "fields": {
                             "type": "array",
-                            "description": "Fields to include in response. If omitted, returns all fields. Options: id, description, cost, date, category, deleted_at, group_id",
+                            "description": "Fields to include (REQUIRED). Common: id, description, cost, currency_code, date, category, payment, group_id. All available: id, description, cost, currency_code, date, category (id & name), payment (true if payment/settlement), group_id (null if personal), friendship_id (for non-group expenses), details (notes), users (array with paid_share, owed_share, net_balance per user), repayments (simplified debt flows), created_at, created_by, updated_at, updated_by, deleted_at (when deleted), deleted_by, receipt (image URLs), comments_count, transaction_confirmed (for integrated payments), transaction_id, transaction_method, transaction_status, repeats, repeat_interval (weekly/monthly/yearly), next_repeat, email_reminder, email_reminder_in_advance, expense_bundle_id",
                             "items": {
                                 "type": "string"
                             }
@@ -143,9 +143,14 @@ impl SplitwiseTools {
                             "items": {
                                 "type": "integer"
                             }
+                        },
+                        "include_deleted": {
+                            "type": "string",
+                            "description": "Control deleted expense filtering: 'exclude' (default), 'include' (show all), or 'only' (show only deleted)",
+                            "enum": ["exclude", "include", "only"]
                         }
                     },
-                    "required": []
+                    "required": ["fields"]
                 }
             }),
             json!({
@@ -163,10 +168,10 @@ impl SplitwiseTools {
                             "items": {
                                 "type": "string"
                             },
-                            "description": "Fields to include in response. If omitted, returns all fields. Options: id, description, cost, date, category, deleted_at, group_id"
+                            "description": "Fields to include (REQUIRED). Available: id, description, cost, currency_code, date, category, payment, group_id, friendship_id, details, users, repayments, created_at, created_by, updated_at, updated_by, deleted_at, deleted_by, receipt, comments_count, transaction_confirmed, transaction_id, transaction_method, transaction_status, repeats, repeat_interval, next_repeat, email_reminder, email_reminder_in_advance, expense_bundle_id"
                         }
                     },
-                    "required": ["expense_id"]
+                    "required": ["expense_id", "fields"]
                 }
             }),
             json!({
@@ -404,12 +409,16 @@ impl SplitwiseTools {
                     dated_before: Option<String>,
                     limit: Option<i32>,
                     offset: Option<i32>,
-                    fields: Option<Vec<String>>,
+                    fields: Vec<String>,  // Now required
                     search_text: Option<String>,
                     search_fields: Option<Vec<String>>,
                     category_ids: Option<Vec<i64>>,
+                    include_deleted: Option<String>,
                 }
                 let args: Args = serde_json::from_value(arguments)?;
+                
+                // Default to excluding deleted expenses
+                let include_deleted = args.include_deleted.as_deref().unwrap_or("exclude");
                 
                 let mut expenses = Vec::new();
                 
@@ -451,6 +460,29 @@ impl SplitwiseTools {
                         
                         // Filter this batch
                         batch.retain(|expense| {
+                            // Handle deleted expense filtering
+                            match include_deleted {
+                                "exclude" => {
+                                    if expense.deleted_at.is_some() {
+                                        return false;
+                                    }
+                                },
+                                "only" => {
+                                    if expense.deleted_at.is_none() {
+                                        return false;
+                                    }
+                                },
+                                "include" => {
+                                    // Include all expenses regardless of deleted status
+                                },
+                                _ => {
+                                    // Default to exclude if somehow invalid value
+                                    if expense.deleted_at.is_some() {
+                                        return false;
+                                    }
+                                }
+                            }
+                            
                             // Check category filter first
                             if let Some(ref category_ids) = args.category_ids {
                                 if !category_ids.contains(&expense.category.id) {
@@ -511,75 +543,214 @@ impl SplitwiseTools {
                         expenses.truncate(limit);
                     }
                 } else {
-                    // No search - just fetch with the original parameters
-                    let params = ListExpensesParams {
-                        group_id: args.group_id,
-                        friend_id: args.friend_id,
-                        dated_after: args.dated_after,
-                        dated_before: args.dated_before,
-                        updated_after: None,
-                        updated_before: None,
-                        limit: args.limit,
-                        offset: args.offset,
-                    };
-                    expenses = self.client.get_expenses(params).await?;
-                }
-                
-                // If fields are specified, filter the response
-                if let Some(fields) = args.fields {
-                    let filtered: Vec<serde_json::Value> = expenses.into_iter().map(|exp| {
-                        let mut obj = serde_json::Map::new();
-                        for field in &fields {
-                            match field.as_str() {
-                                "id" => { obj.insert("id".to_string(), json!(exp.id)); },
-                                "description" => { obj.insert("description".to_string(), json!(exp.description)); },
-                                "cost" => { obj.insert("cost".to_string(), json!(exp.cost)); },
-                                "date" => { obj.insert("date".to_string(), json!(exp.date)); },
-                                "category" => { 
-                                    obj.insert("category".to_string(), json!({"id": exp.category.id, "name": exp.category.name}));
+                    // No search or category filter, but still need to handle deleted filtering properly with limit
+                    
+                    // If we're filtering deleted expenses AND have a limit, we need to fetch in batches
+                    // to ensure we get enough non-deleted results
+                    if include_deleted != "include" && args.limit.is_some() {
+                        let desired_count = args.limit.map(|l| l as usize);
+                        let batch_size = 100;
+                        let mut current_offset = args.offset.unwrap_or(0);
+                        
+                        loop {
+                            // If we have a limit and reached it, stop
+                            if let Some(limit) = desired_count {
+                                if expenses.len() >= limit {
+                                    break;
+                                }
+                            }
+                            
+                            let params = ListExpensesParams {
+                                group_id: args.group_id,
+                                friend_id: args.friend_id,
+                                dated_after: args.dated_after.clone(),
+                                dated_before: args.dated_before.clone(),
+                                updated_after: None,
+                                updated_before: None,
+                                limit: Some(batch_size),
+                                offset: Some(current_offset),
+                            };
+                            
+                            let mut batch = self.client.get_expenses(params).await?;
+                            let batch_had_results = !batch.is_empty();
+                            
+                            // Apply deleted expense filtering
+                            match include_deleted {
+                                "exclude" => {
+                                    batch.retain(|expense| expense.deleted_at.is_none());
                                 },
-                                "deleted_at" => { obj.insert("deleted_at".to_string(), json!(exp.deleted_at)); },
-                                "group_id" => { obj.insert("group_id".to_string(), json!(exp.group_id)); },
-                                _ => {}
+                                "only" => {
+                                    batch.retain(|expense| expense.deleted_at.is_some());
+                                },
+                                _ => {
+                                    // Default to exclude
+                                    batch.retain(|expense| expense.deleted_at.is_none());
+                                }
+                            }
+                            
+                            // Add filtered results
+                            for expense in batch {
+                                expenses.push(expense);
+                                if let Some(limit) = desired_count {
+                                    if expenses.len() >= limit {
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // If the original batch was empty, we've reached the end
+                            if !batch_had_results {
+                                break;
+                            }
+                            
+                            current_offset += batch_size;
+                        }
+                        
+                        // Truncate to requested limit if there is one
+                        if let Some(limit) = desired_count {
+                            expenses.truncate(limit);
+                        }
+                    } else {
+                        // Simple case: include all deleted or no limit specified
+                        let params = ListExpensesParams {
+                            group_id: args.group_id,
+                            friend_id: args.friend_id,
+                            dated_after: args.dated_after,
+                            dated_before: args.dated_before,
+                            updated_after: None,
+                            updated_before: None,
+                            limit: args.limit,
+                            offset: args.offset,
+                        };
+                        expenses = self.client.get_expenses(params).await?;
+                        
+                        // Apply deleted expense filtering if not including all
+                        if include_deleted != "include" {
+                            match include_deleted {
+                                "exclude" => {
+                                    expenses.retain(|expense| expense.deleted_at.is_none());
+                                },
+                                "only" => {
+                                    expenses.retain(|expense| expense.deleted_at.is_some());
+                                },
+                                _ => {
+                                    // Default to exclude
+                                    expenses.retain(|expense| expense.deleted_at.is_none());
+                                }
                             }
                         }
-                        serde_json::Value::Object(obj)
-                    }).collect();
-                    Ok(serde_json::Value::Array(filtered))
-                } else {
-                    Ok(serde_json::to_value(expenses)?)
+                    }
                 }
+                
+                // Filter to requested fields
+                let filtered: Vec<serde_json::Value> = expenses.into_iter().map(|exp| {
+                    let mut obj = serde_json::Map::new();
+                    for field in &args.fields {
+                        match field.as_str() {
+                            "id" => { obj.insert("id".to_string(), json!(exp.id)); },
+                            "description" => { obj.insert("description".to_string(), json!(exp.description)); },
+                            "cost" => { obj.insert("cost".to_string(), json!(exp.cost)); },
+                            "currency_code" => { obj.insert("currency_code".to_string(), json!(exp.currency_code)); },
+                            "date" => { obj.insert("date".to_string(), json!(exp.date)); },
+                            "category" => { 
+                                obj.insert("category".to_string(), json!({"id": exp.category.id, "name": exp.category.name}));
+                            },
+                            "payment" => { obj.insert("payment".to_string(), json!(exp.payment)); },
+                            "group_id" => { obj.insert("group_id".to_string(), json!(exp.group_id)); },
+                            "friendship_id" => { obj.insert("friendship_id".to_string(), json!(exp.friendship_id)); },
+                            "details" => { obj.insert("details".to_string(), json!(exp.details)); },
+                            "users" => { obj.insert("users".to_string(), json!(exp.users)); },
+                            "repayments" => { obj.insert("repayments".to_string(), json!(exp.repayments)); },
+                            "created_at" => { obj.insert("created_at".to_string(), json!(exp.created_at)); },
+                            "created_by" => { obj.insert("created_by".to_string(), json!(exp.created_by)); },
+                            "updated_at" => { obj.insert("updated_at".to_string(), json!(exp.updated_at)); },
+                            "updated_by" => { obj.insert("updated_by".to_string(), json!(exp.updated_by)); },
+                            "deleted_at" => { 
+                                if exp.deleted_at.is_some() {
+                                    obj.insert("deleted_at".to_string(), json!(exp.deleted_at));
+                                }
+                            },
+                            "deleted_by" => { 
+                                if exp.deleted_by.is_some() {
+                                    obj.insert("deleted_by".to_string(), json!(exp.deleted_by));
+                                }
+                            },
+                            "receipt" => { obj.insert("receipt".to_string(), json!(exp.receipt)); },
+                            "comments_count" => { obj.insert("comments_count".to_string(), json!(exp.comments_count)); },
+                            "transaction_confirmed" => { obj.insert("transaction_confirmed".to_string(), json!(exp.transaction_confirmed)); },
+                            "transaction_id" => { obj.insert("transaction_id".to_string(), json!(exp.transaction_id)); },
+                            "transaction_method" => { obj.insert("transaction_method".to_string(), json!(exp.transaction_method)); },
+                            "transaction_status" => { obj.insert("transaction_status".to_string(), json!(exp.transaction_status)); },
+                            "repeats" => { obj.insert("repeats".to_string(), json!(exp.repeats)); },
+                            "repeat_interval" => { obj.insert("repeat_interval".to_string(), json!(exp.repeat_interval)); },
+                            "next_repeat" => { obj.insert("next_repeat".to_string(), json!(exp.next_repeat)); },
+                            "email_reminder" => { obj.insert("email_reminder".to_string(), json!(exp.email_reminder)); },
+                            "email_reminder_in_advance" => { obj.insert("email_reminder_in_advance".to_string(), json!(exp.email_reminder_in_advance)); },
+                            "expense_bundle_id" => { obj.insert("expense_bundle_id".to_string(), json!(exp.expense_bundle_id)); },
+                            _ => {}
+                        }
+                    }
+                    serde_json::Value::Object(obj)
+                }).collect();
+                Ok(serde_json::Value::Array(filtered))
             }
             "get_expense" => {
                 #[derive(Deserialize)]
                 struct Args {
                     expense_id: i64,
-                    fields: Option<Vec<String>>,
+                    fields: Vec<String>,  // Now required
                 }
                 let args: Args = serde_json::from_value(arguments)?;
                 let expense = self.client.get_expense(args.expense_id).await?;
                 
-                // If fields are specified, filter the response
-                if let Some(fields) = args.fields {
-                    let mut obj = serde_json::Map::new();
-                    for field in &fields {
-                        match field.as_str() {
+                // Filter to requested fields
+                let mut obj = serde_json::Map::new();
+                for field in &args.fields {
+                    match field.as_str() {
                             "id" => { obj.insert("id".to_string(), json!(expense.id)); },
                             "description" => { obj.insert("description".to_string(), json!(expense.description)); },
                             "cost" => { obj.insert("cost".to_string(), json!(expense.cost)); },
+                            "currency_code" => { obj.insert("currency_code".to_string(), json!(expense.currency_code)); },
                             "date" => { obj.insert("date".to_string(), json!(expense.date)); },
                             "category" => { 
                                 obj.insert("category".to_string(), json!({"id": expense.category.id, "name": expense.category.name}));
                             },
-                            "deleted_at" => { obj.insert("deleted_at".to_string(), json!(expense.deleted_at)); },
+                            "payment" => { obj.insert("payment".to_string(), json!(expense.payment)); },
                             "group_id" => { obj.insert("group_id".to_string(), json!(expense.group_id)); },
+                            "friendship_id" => { obj.insert("friendship_id".to_string(), json!(expense.friendship_id)); },
+                            "details" => { obj.insert("details".to_string(), json!(expense.details)); },
+                            "users" => { obj.insert("users".to_string(), json!(expense.users)); },
+                            "repayments" => { obj.insert("repayments".to_string(), json!(expense.repayments)); },
+                            "created_at" => { obj.insert("created_at".to_string(), json!(expense.created_at)); },
+                            "created_by" => { obj.insert("created_by".to_string(), json!(expense.created_by)); },
+                            "updated_at" => { obj.insert("updated_at".to_string(), json!(expense.updated_at)); },
+                            "updated_by" => { obj.insert("updated_by".to_string(), json!(expense.updated_by)); },
+                            "deleted_at" => { 
+                                if expense.deleted_at.is_some() {
+                                    obj.insert("deleted_at".to_string(), json!(expense.deleted_at));
+                                }
+                            },
+                            "deleted_by" => { 
+                                if expense.deleted_by.is_some() {
+                                    obj.insert("deleted_by".to_string(), json!(expense.deleted_by));
+                                }
+                            },
+                            "receipt" => { obj.insert("receipt".to_string(), json!(expense.receipt)); },
+                            "comments_count" => { obj.insert("comments_count".to_string(), json!(expense.comments_count)); },
+                            "transaction_confirmed" => { obj.insert("transaction_confirmed".to_string(), json!(expense.transaction_confirmed)); },
+                            "transaction_id" => { obj.insert("transaction_id".to_string(), json!(expense.transaction_id)); },
+                            "transaction_method" => { obj.insert("transaction_method".to_string(), json!(expense.transaction_method)); },
+                            "transaction_status" => { obj.insert("transaction_status".to_string(), json!(expense.transaction_status)); },
+                            "repeats" => { obj.insert("repeats".to_string(), json!(expense.repeats)); },
+                            "repeat_interval" => { obj.insert("repeat_interval".to_string(), json!(expense.repeat_interval)); },
+                            "next_repeat" => { obj.insert("next_repeat".to_string(), json!(expense.next_repeat)); },
+                            "email_reminder" => { obj.insert("email_reminder".to_string(), json!(expense.email_reminder)); },
+                            "email_reminder_in_advance" => { obj.insert("email_reminder_in_advance".to_string(), json!(expense.email_reminder_in_advance)); },
+                            "expense_bundle_id" => { obj.insert("expense_bundle_id".to_string(), json!(expense.expense_bundle_id)); },
                             _ => {}
-                        }
                     }
-                    Ok(serde_json::Value::Object(obj))
-                } else {
-                    Ok(serde_json::to_value(expense)?)
                 }
+                Ok(serde_json::Value::Object(obj))
             }
             "create_expense" => {
                 #[derive(Deserialize)]
