@@ -1,9 +1,8 @@
-version: '3.8'
+version: '3.3'
 
 services:
   splitwise-mcp:
-    build: .
-    image: splitwise-mcp-server:latest
+    image: ghcr.io/marnunez/splitwise-mcp-server:latest
     container_name: splitwise-mcp
     restart: unless-stopped
     environment:
