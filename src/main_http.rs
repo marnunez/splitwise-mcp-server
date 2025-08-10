@@ -1,12 +1,14 @@
 use anyhow::{Context, Result};
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{header, HeaderMap, Method, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD, Engine};
 use dotenv::dotenv;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{env, sync::Arc};
 use tower::ServiceBuilder;
@@ -25,28 +27,75 @@ use tools::SplitwiseTools;
 struct AppState {
     tools: Arc<SplitwiseTools>,
     auth_token: String,
+    client_id: String,
+    client_secret: String,
 }
 
-// Authentication middleware
-async fn check_auth(headers: &HeaderMap) -> Result<(), StatusCode> {
-    let auth_header = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+#[derive(Deserialize)]
+struct TokenRequest {
+    grant_type: String,
+    client_id: String,
+    client_secret: String,
+}
 
-    // Check Bearer token
-    let token = auth_header
-        .strip_prefix("Bearer ")
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+#[derive(Serialize)]
+struct TokenResponse {
+    access_token: String,
+    token_type: String,
+    expires_in: i32,
+}
 
-    // In production, validate token properly
-    let expected_token = env::var("MCP_AUTH_TOKEN").unwrap_or_else(|_| "default-token".to_string());
+// Authentication middleware - supports both Bearer token and Basic auth
+async fn check_auth(headers: &HeaderMap, state: &AppState) -> Result<(), StatusCode> {
+    // First try Bearer token
+    if let Some(auth_header) = headers.get(header::AUTHORIZATION) {
+        if let Ok(auth_str) = auth_header.to_str() {
+            // Check Bearer token
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                if token == state.auth_token {
+                    return Ok(());
+                }
+            }
+            
+            // Check Basic auth (client_id:client_secret base64 encoded)
+            if let Some(basic) = auth_str.strip_prefix("Basic ") {
+                if let Ok(decoded) = STANDARD.decode(basic) {
+                    if let Ok(credentials) = String::from_utf8(decoded) {
+                        let parts: Vec<&str> = credentials.split(':').collect();
+                        if parts.len() == 2 && 
+                           parts[0] == state.client_id && 
+                           parts[1] == state.client_secret {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+    }
     
-    if token != expected_token {
+    Err(StatusCode::UNAUTHORIZED)
+}
+
+// OAuth2 token endpoint
+async fn oauth_token_handler(
+    State(state): State<AppState>,
+    Json(request): Json<TokenRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    // Validate client credentials
+    if request.grant_type != "client_credentials" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    
+    if request.client_id != state.client_id || request.client_secret != state.client_secret {
         return Err(StatusCode::UNAUTHORIZED);
     }
-
-    Ok(())
+    
+    // Return access token (which is our MCP_AUTH_TOKEN)
+    Ok(Json(TokenResponse {
+        access_token: state.auth_token.clone(),
+        token_type: "Bearer".to_string(),
+        expires_in: 3600, // 1 hour
+    }))
 }
 
 
@@ -57,7 +106,7 @@ async fn mcp_handler(
     Json(request): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, StatusCode> {
     // Check authentication
-    check_auth(&headers).await?;
+    check_auth(&headers, &state).await?;
 
     info!("HTTP request received: {:?}", request);
 
@@ -195,6 +244,19 @@ async fn main() -> Result<()> {
             warn!("MCP_AUTH_TOKEN not set, using default token (INSECURE!)");
             "default-token".to_string()
         });
+    
+    let client_id = env::var("OAUTH_CLIENT_ID")
+        .unwrap_or_else(|_| {
+            info!("OAUTH_CLIENT_ID not set, generating default");
+            "splitwise-mcp-client".to_string()
+        });
+    
+    let client_secret = env::var("OAUTH_CLIENT_SECRET")
+        .unwrap_or_else(|_| {
+            warn!("OAUTH_CLIENT_SECRET not set, generating random secret");
+            // Generate a random secret if not provided
+            STANDARD.encode(&rand::random::<[u8; 32]>())
+        });
 
     let port = env::var("PORT")
         .unwrap_or_else(|_| "8080".to_string())
@@ -209,6 +271,8 @@ async fn main() -> Result<()> {
     let state = AppState {
         tools,
         auth_token: auth_token.clone(),
+        client_id: client_id.clone(),
+        client_secret: client_secret.clone(),
     };
 
     // Configure CORS
@@ -221,6 +285,8 @@ async fn main() -> Result<()> {
     let app = Router::new()
         // MCP endpoint
         .route("/mcp", post(mcp_handler))
+        // OAuth2 token endpoint
+        .route("/oauth/token", post(oauth_token_handler))
         // Utility endpoints
         .route("/health", get(health_check))
         .route("/", get(server_info))
@@ -232,7 +298,13 @@ async fn main() -> Result<()> {
     let addr = format!("0.0.0.0:{}", port);
     info!("HTTP server listening on {}", addr);
     info!("MCP endpoint: http://{}:{}/mcp", "localhost", port);
-    info!("Using auth token: {}", if auth_token == "default-token" { "DEFAULT (INSECURE!)" } else { "CUSTOM" });
+    info!("OAuth2 token endpoint: http://{}:{}/oauth/token", "localhost", port);
+    info!("Client ID: {}", client_id);
+    info!("Client Secret: {} (keep this secret!)", if client_secret.len() > 10 { 
+        format!("{}...", &client_secret[..10]) 
+    } else { 
+        "GENERATED".to_string() 
+    });
 
     // Start the server
     let listener = tokio::net::TcpListener::bind(&addr).await?;

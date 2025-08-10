@@ -37,6 +37,8 @@ oauth2 = "4.4"
 url = "2.5"
 # Base64 encoding
 base64 = "0.22"
+# Random number generation for secrets
+rand = "0.8"
 
 [[bin]]
 name = "splitwise-mcp"
