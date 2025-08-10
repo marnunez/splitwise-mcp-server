@@ -139,6 +139,13 @@ impl SplitwiseTools {
                         "expense_id": {
                             "type": "integer",
                             "description": "The ID of the expense to retrieve"
+                        },
+                        "fields": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Fields to include in response. If omitted, returns all fields. Options: id, description, cost, date, category, deleted_at, group_id"
                         }
                     },
                     "required": ["expense_id"]
@@ -423,10 +430,32 @@ impl SplitwiseTools {
                 #[derive(Deserialize)]
                 struct Args {
                     expense_id: i64,
+                    fields: Option<Vec<String>>,
                 }
                 let args: Args = serde_json::from_value(arguments)?;
                 let expense = self.client.get_expense(args.expense_id).await?;
-                Ok(serde_json::to_value(expense)?)
+                
+                // If fields are specified, filter the response
+                if let Some(fields) = args.fields {
+                    let mut obj = serde_json::Map::new();
+                    for field in &fields {
+                        match field.as_str() {
+                            "id" => { obj.insert("id".to_string(), json!(expense.id)); },
+                            "description" => { obj.insert("description".to_string(), json!(expense.description)); },
+                            "cost" => { obj.insert("cost".to_string(), json!(expense.cost)); },
+                            "date" => { obj.insert("date".to_string(), json!(expense.date)); },
+                            "category" => { 
+                                obj.insert("category".to_string(), json!({"id": expense.category.id, "name": expense.category.name}));
+                            },
+                            "deleted_at" => { obj.insert("deleted_at".to_string(), json!(expense.deleted_at)); },
+                            "group_id" => { obj.insert("group_id".to_string(), json!(expense.group_id)); },
+                            _ => {}
+                        }
+                    }
+                    Ok(serde_json::Value::Object(obj))
+                } else {
+                    Ok(serde_json::to_value(expense)?)
+                }
             }
             "create_expense" => {
                 #[derive(Deserialize)]
