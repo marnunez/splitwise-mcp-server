@@ -402,48 +402,91 @@ impl SplitwiseTools {
                     search_fields: Option<Vec<String>>,
                 }
                 let args: Args = serde_json::from_value(arguments)?;
-                let params = ListExpensesParams {
-                    group_id: args.group_id,
-                    friend_id: args.friend_id,
-                    dated_after: args.dated_after,
-                    dated_before: args.dated_before,
-                    updated_after: None,
-                    updated_before: None,
-                    limit: args.limit,
-                    offset: args.offset,
-                };
-                let mut expenses = self.client.get_expenses(params).await?;
                 
-                // Filter by search text if specified
-                if let Some(search_text) = args.search_text {
+                let mut expenses = Vec::new();
+                
+                // If searching, fetch in batches until we have enough matches
+                if let Some(search_text) = &args.search_text {
                     let search_lower = search_text.to_lowercase();
-                    let search_fields = args.search_fields.unwrap_or_else(|| {
+                    let search_fields = args.search_fields.clone().unwrap_or_else(|| {
                         vec!["description".to_string(), "details".to_string(), "category".to_string()]
                     });
                     
-                    expenses.retain(|expense| {
-                        for field in &search_fields {
-                            match field.as_str() {
-                                "description" => {
-                                    if expense.description.to_lowercase().contains(&search_lower) {
-                                        return true;
-                                    }
-                                },
-                                "details" => {
-                                    if expense.details.as_ref().map_or(false, |d| d.to_lowercase().contains(&search_lower)) {
-                                        return true;
-                                    }
-                                },
-                                "category" => {
-                                    if expense.category.name.to_lowercase().contains(&search_lower) {
-                                        return true;
-                                    }
-                                },
-                                _ => {}
+                    let desired_count = args.limit.unwrap_or(100) as usize;
+                    let batch_size = 100;
+                    let mut current_offset = args.offset.unwrap_or(0);
+                    
+                    // Keep fetching batches until we have enough matches or run out of expenses
+                    while expenses.len() < desired_count {
+                        let params = ListExpensesParams {
+                            group_id: args.group_id,
+                            friend_id: args.friend_id,
+                            dated_after: args.dated_after.clone(),
+                            dated_before: args.dated_before.clone(),
+                            updated_after: None,
+                            updated_before: None,
+                            limit: Some(batch_size),
+                            offset: Some(current_offset),
+                        };
+                        
+                        let mut batch = self.client.get_expenses(params).await?;
+                        
+                        // If we got no results, we've reached the end
+                        if batch.is_empty() {
+                            break;
+                        }
+                        
+                        // Filter this batch
+                        batch.retain(|expense| {
+                            for field in &search_fields {
+                                match field.as_str() {
+                                    "description" => {
+                                        if expense.description.to_lowercase().contains(&search_lower) {
+                                            return true;
+                                        }
+                                    },
+                                    "details" => {
+                                        if expense.details.as_ref().map_or(false, |d| d.to_lowercase().contains(&search_lower)) {
+                                            return true;
+                                        }
+                                    },
+                                    "category" => {
+                                        if expense.category.name.to_lowercase().contains(&search_lower) {
+                                            return true;
+                                        }
+                                    },
+                                    _ => {}
+                                }
+                            }
+                            false
+                        });
+                        
+                        // Add matches to our results
+                        for expense in batch {
+                            expenses.push(expense);
+                            if expenses.len() >= desired_count {
+                                break;
                             }
                         }
-                        false
-                    });
+                        
+                        current_offset += batch_size;
+                    }
+                    
+                    // Truncate to requested limit
+                    expenses.truncate(desired_count);
+                } else {
+                    // No search - just fetch with the original parameters
+                    let params = ListExpensesParams {
+                        group_id: args.group_id,
+                        friend_id: args.friend_id,
+                        dated_after: args.dated_after,
+                        dated_before: args.dated_before,
+                        updated_after: None,
+                        updated_before: None,
+                        limit: args.limit,
+                        offset: args.offset,
+                    };
+                    expenses = self.client.get_expenses(params).await?;
                 }
                 
                 // If fields are specified, filter the response
