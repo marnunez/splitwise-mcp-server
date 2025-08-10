@@ -136,6 +136,13 @@ impl SplitwiseTools {
                             "items": {
                                 "type": "string"
                             }
+                        },
+                        "category_ids": {
+                            "type": "array",
+                            "description": "Filter by specific category IDs (e.g., [12] for Alimentos, [18] for General, or [12, 18] for both)",
+                            "items": {
+                                "type": "integer"
+                            }
                         }
                     },
                     "required": []
@@ -400,14 +407,15 @@ impl SplitwiseTools {
                     fields: Option<Vec<String>>,
                     search_text: Option<String>,
                     search_fields: Option<Vec<String>>,
+                    category_ids: Option<Vec<i64>>,
                 }
                 let args: Args = serde_json::from_value(arguments)?;
                 
                 let mut expenses = Vec::new();
                 
-                // If searching, fetch in batches until we have enough matches
-                if let Some(search_text) = &args.search_text {
-                    let search_lower = search_text.to_lowercase();
+                // If searching or filtering by category, fetch in batches until we have enough matches
+                if args.search_text.is_some() || args.category_ids.is_some() {
+                    let search_lower = args.search_text.as_ref().map(|s| s.to_lowercase());
                     let search_fields = args.search_fields.clone().unwrap_or_else(|| {
                         vec!["description".to_string(), "details".to_string(), "category".to_string()]
                     });
@@ -438,27 +446,41 @@ impl SplitwiseTools {
                         
                         // Filter this batch
                         batch.retain(|expense| {
-                            for field in &search_fields {
-                                match field.as_str() {
-                                    "description" => {
-                                        if expense.description.to_lowercase().contains(&search_lower) {
-                                            return true;
-                                        }
-                                    },
-                                    "details" => {
-                                        if expense.details.as_ref().map_or(false, |d| d.to_lowercase().contains(&search_lower)) {
-                                            return true;
-                                        }
-                                    },
-                                    "category" => {
-                                        if expense.category.name.to_lowercase().contains(&search_lower) {
-                                            return true;
-                                        }
-                                    },
-                                    _ => {}
+                            // Check category filter first
+                            if let Some(ref category_ids) = args.category_ids {
+                                if !category_ids.contains(&expense.category.id) {
+                                    return false;
                                 }
                             }
-                            false
+                            
+                            // Then check text search if present
+                            if let Some(ref search_lower) = search_lower {
+                                for field in &search_fields {
+                                    match field.as_str() {
+                                        "description" => {
+                                            if expense.description.to_lowercase().contains(search_lower) {
+                                                return true;
+                                            }
+                                        },
+                                        "details" => {
+                                            if expense.details.as_ref().map_or(false, |d| d.to_lowercase().contains(search_lower)) {
+                                                return true;
+                                            }
+                                        },
+                                        "category" => {
+                                            if expense.category.name.to_lowercase().contains(search_lower) {
+                                                return true;
+                                            }
+                                        },
+                                        _ => {}
+                                    }
+                                }
+                                // If search text was provided but no match found, exclude this expense
+                                return false;
+                            }
+                            
+                            // If no search text but category matched (or no filters), include it
+                            true
                         });
                         
                         // Add matches to our results
