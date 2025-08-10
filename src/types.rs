@@ -68,7 +68,7 @@ pub struct Expense {
     pub description: String,
     pub repeats: bool,
     pub repeat_interval: Option<String>,
-    pub email_reminder: bool,
+    pub email_reminder: Option<bool>,
     pub email_reminder_in_advance: Option<i32>,
     pub next_repeat: Option<String>,
     pub details: Option<String>,

@@ -420,12 +420,18 @@ impl SplitwiseTools {
                         vec!["description".to_string(), "details".to_string(), "category".to_string()]
                     });
                     
-                    let desired_count = args.limit.unwrap_or(100) as usize;
+                    let desired_count = args.limit.map(|l| l as usize);
                     let batch_size = 100;
                     let mut current_offset = args.offset.unwrap_or(0);
                     
-                    // Keep fetching batches until we have enough matches or run out of expenses
-                    while expenses.len() < desired_count {
+                    // Keep fetching batches until we have enough matches (if limit set) or run out of expenses
+                    loop {
+                        // If we have a limit and reached it, stop
+                        if let Some(limit) = desired_count {
+                            if expenses.len() >= limit {
+                                break;
+                            }
+                        }
                         let params = ListExpensesParams {
                             group_id: args.group_id,
                             friend_id: args.friend_id,
@@ -437,12 +443,11 @@ impl SplitwiseTools {
                             offset: Some(current_offset),
                         };
                         
-                        let mut batch = self.client.get_expenses(params).await?;
+                        let mut batch = self.client.get_expenses(params.clone()).await
+                            .map_err(|e| anyhow::anyhow!("Failed to fetch batch at offset {}: {}", current_offset, e))?;
                         
-                        // If we got no results, we've reached the end
-                        if batch.is_empty() {
-                            break;
-                        }
+                        // Store the original batch size to check if we've reached the end
+                        let batch_had_results = !batch.is_empty();
                         
                         // Filter this batch
                         batch.retain(|expense| {
@@ -486,16 +491,25 @@ impl SplitwiseTools {
                         // Add matches to our results
                         for expense in batch {
                             expenses.push(expense);
-                            if expenses.len() >= desired_count {
-                                break;
+                            if let Some(limit) = desired_count {
+                                if expenses.len() >= limit {
+                                    break;
+                                }
                             }
+                        }
+                        
+                        // If the original batch was empty, we've reached the end
+                        if !batch_had_results {
+                            break;
                         }
                         
                         current_offset += batch_size;
                     }
                     
-                    // Truncate to requested limit
-                    expenses.truncate(desired_count);
+                    // Truncate to requested limit if there is one
+                    if let Some(limit) = desired_count {
+                        expenses.truncate(limit);
+                    }
                 } else {
                     // No search - just fetch with the original parameters
                     let params = ListExpensesParams {

@@ -72,7 +72,12 @@ impl SplitwiseClient {
         let text = response.text().await?;
 
         if status.is_success() {
-            serde_json::from_str(&text).context("Failed to parse response")
+            serde_json::from_str(&text).with_context(|| {
+                format!("Failed to parse response. Status: {}, Length: {}, First 500 chars: {}", 
+                    status, 
+                    text.len(),
+                    &text.chars().take(500).collect::<String>())
+            })
         } else {
             let error: ApiError = serde_json::from_str(&text).unwrap_or_else(|_| ApiError {
                 errors: {
