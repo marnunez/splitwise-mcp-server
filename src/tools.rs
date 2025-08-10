@@ -227,6 +227,10 @@ impl SplitwiseTools {
                             "type": "string",
                             "description": "New currency code"
                         },
+                        "category_id": {
+                            "type": "integer",
+                            "description": "Category or subcategory ID from get_categories"
+                        },
                         "date": {
                             "type": "string",
                             "description": "New date (YYYY-MM-DD)"
@@ -459,6 +463,7 @@ impl SplitwiseTools {
                     cost: String,
                     description: String,
                     currency_code: Option<String>,
+                    category_id: Option<i64>,
                     date: Option<String>,
                     split_equally: Option<bool>,
                     split_by_shares: Option<Vec<ExpenseShare>>,
@@ -468,7 +473,7 @@ impl SplitwiseTools {
                     cost: args.cost,
                     description: args.description,
                     currency_code: args.currency_code,
-                    category_id: None,
+                    category_id: args.category_id,
                     date: args.date,
                     repeat_interval: None,
                     details: None,
