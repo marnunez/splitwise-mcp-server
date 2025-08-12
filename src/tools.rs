@@ -244,7 +244,7 @@ impl SplitwiseTools {
             }),
             json!({
                 "name": "update_expense",
-                "description": "Update an existing expense",
+                "description": "Update an existing expense including its split/division",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -271,6 +271,36 @@ impl SplitwiseTools {
                         "date": {
                             "type": "string",
                             "description": "New date (YYYY-MM-DD)"
+                        },
+                        "split_equally": {
+                            "type": "boolean",
+                            "description": "Whether to split equally among all group members. Set to false when using split_by_shares."
+                        },
+                        "split_by_shares": {
+                            "type": "array",
+                            "description": "Custom split amounts. Each entry specifies a user and their paid/owed amounts. Use this for unequal splits or when changing who pays.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "user_id": {
+                                        "type": "integer",
+                                        "description": "User ID (get from list_friends or get_group)"
+                                    },
+                                    "email": {
+                                        "type": "string",
+                                        "description": "User email (alternative to user_id)"
+                                    },
+                                    "paid_share": {
+                                        "type": "string",
+                                        "description": "Amount this user paid (e.g., '50.00')"
+                                    },
+                                    "owed_share": {
+                                        "type": "string",
+                                        "description": "Amount this user owes (e.g., '25.00')"
+                                    }
+                                },
+                                "required": ["paid_share", "owed_share"]
+                            }
                         }
                     },
                     "required": ["expense_id"]

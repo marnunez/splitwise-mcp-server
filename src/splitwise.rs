@@ -365,10 +365,9 @@ impl SplitwiseClient {
             body["date"] = json!(date);
         }
         
-        // Handle split information - required when changing cost
-        if let Some(split_equally) = request.split_equally {
-            body["split_equally"] = json!(split_equally);
-        }
+        // Handle split information - only send users array, not split_equally flag
+        // The split_equally parameter is not supported by update_expense endpoint
+        // Instead, we need to send the users array with the appropriate shares
         
         // Handle custom split shares - convert to flattened format for API
         if let Some(shares) = request.split_by_shares {
@@ -382,6 +381,9 @@ impl SplitwiseClient {
                 body[format!("users__{}__paid_share", index)] = json!(share.paid_share);
                 body[format!("users__{}__owed_share", index)] = json!(share.owed_share);
             }
+        } else if request.split_equally.is_some() {
+            // If split_equally is specified but no shares, we can't update just that flag
+            // User must provide explicit shares to change the split
         }
 
         #[derive(serde::Deserialize)]
