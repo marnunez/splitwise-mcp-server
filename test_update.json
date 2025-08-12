@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "update_expense",
+    "arguments": {
+      "expense_id": 3979725244,
+      "split_equally": false,
+      "split_by_shares": [
+        {"user_id": 11116744, "paid_share": "28000", "owed_share": "28000"},
+        {"user_id": 11116812, "paid_share": "0", "owed_share": "0"}
+      ]
+    }
+  },
+  "id": 1
+}

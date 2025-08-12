@@ -840,7 +840,24 @@ impl SplitwiseTools {
                     split_by_shares,
                 };
                 let expenses = self.client.create_expense(request).await?;
-                Ok(serde_json::to_value(expenses)?)
+                // Return simplified response with just essential info
+                let simplified = if let Some(expense) = expenses.first() {
+                    json!({
+                        "success": true,
+                        "id": expense.id,
+                        "description": expense.description,
+                        "cost": expense.cost,
+                        "created_at": expense.created_at,
+                        "split": expense.users.iter().map(|u| json!({
+                            "name": u.user.as_ref().map(|user| &user.first_name),
+                            "paid": u.paid_share,
+                            "owes": u.owed_share
+                        })).collect::<Vec<_>>()
+                    })
+                } else {
+                    json!({ "success": true })
+                };
+                Ok(simplified)
             }
             "update_expense" => {
                 #[derive(Deserialize)]
@@ -868,7 +885,24 @@ impl SplitwiseTools {
                     split_by_shares: args.split_by_shares,
                 };
                 let expenses = self.client.update_expense(args.expense_id, request).await?;
-                Ok(serde_json::to_value(expenses)?)
+                // Return simplified response with just essential info
+                let simplified = if let Some(expense) = expenses.first() {
+                    json!({
+                        "success": true,
+                        "id": expense.id,
+                        "description": expense.description,
+                        "cost": expense.cost,
+                        "updated_at": expense.updated_at,
+                        "split": expense.users.iter().map(|u| json!({
+                            "name": u.user.as_ref().map(|user| &user.first_name),
+                            "paid": u.paid_share,
+                            "owes": u.owed_share
+                        })).collect::<Vec<_>>()
+                    })
+                } else {
+                    json!({ "success": true })
+                };
+                Ok(simplified)
             }
             "delete_expense" => {
                 #[derive(Deserialize)]
